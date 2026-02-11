@@ -40,6 +40,7 @@ namespace DroneWarehouseMod
         private DroneManager _manager = null!;
         private Building? _selectionOwner;
         private FarmerQueuesOverlay? _farmerOverlay;
+        private ZoneSelectionOverlay? _selectionOverlay;
 
         private int _deferredRebuildTicks = 0;
 
@@ -145,6 +146,385 @@ namespace DroneWarehouseMod
 
             Core.Audio.Init(this.Helper, this.Monitor, _config);
             helper.Events.Display.MenuChanged += this.OnMenuChanged;
+            helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+        }
+
+        private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+        {
+            // Register custom tile actions for building interaction
+            GameLocation.RegisterTileAction("Jenya.DroneWarehouseMod_Interact", this.HandleBuildingAction);
+            GameLocation.RegisterTileAction("Jenya.DroneWarehouseMod_ChestTile", this.HandleChestAction);
+            GameLocation.RegisterTileAction("Jenya.DroneWarehouseMod_ConsoleTile", this.HandleConsoleAction);
+
+            // Register Generic Mod Config Menu integration
+            RegisterGmcm();
+        }
+
+        private void RegisterGmcm()
+        {
+            var gmcm = this.Helper.ModRegistry.GetApi<Core.IGenericModConfigMenuApi>("spacechase0.GenericModConfigMenu");
+            if (gmcm == null)
+                return;
+
+            gmcm.Register(
+                mod: this.ModManifest,
+                reset: () => _config = new ModConfig(),
+                save: () => this.Helper.WriteConfig(_config)
+            );
+
+            // General
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.general"));
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.WorkOffFarm,
+                setValue: v => _config.WorkOffFarm = v,
+                name: () => I18n.Get("config.workOffFarm.name"),
+                tooltip: () => I18n.Get("config.workOffFarm.tooltip")
+            );
+
+            // Rendering
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.rendering"));
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.DrawUnderTrees,
+                setValue: v => _config.DrawUnderTrees = v,
+                name: () => I18n.Get("config.drawUnderTrees.name"),
+                tooltip: () => I18n.Get("config.drawUnderTrees.tooltip")
+            );
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.DrawInFrontNearHatch,
+                setValue: v => _config.DrawInFrontNearHatch = v,
+                name: () => I18n.Get("config.drawInFrontNearHatch.name"),
+                tooltip: () => I18n.Get("config.drawInFrontNearHatch.tooltip")
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.NearHatchRadius,
+                setValue: v => _config.NearHatchRadius = v,
+                name: () => I18n.Get("config.nearHatchRadius.name"),
+                tooltip: () => I18n.Get("config.nearHatchRadius.tooltip"),
+                min: 50f,
+                max: 300f,
+                interval: 10f
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HatchXOffset,
+                setValue: v => _config.HatchXOffset = v,
+                name: () => I18n.Get("config.hatchXOffset.name"),
+                tooltip: () => I18n.Get("config.hatchXOffset.tooltip"),
+                min: -100f,
+                max: 100f,
+                interval: 5f
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HatchYOffset,
+                setValue: v => _config.HatchYOffset = v,
+                name: () => I18n.Get("config.hatchYOffset.name"),
+                tooltip: () => I18n.Get("config.hatchYOffset.tooltip"),
+                min: -150f,
+                max: 50f,
+                interval: 5f
+            );
+
+            // Harvester Options
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.harvester"));
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HarvesterSkipFlowerCrops,
+                setValue: v => _config.HarvesterSkipFlowerCrops = v,
+                name: () => I18n.Get("config.harvesterSkipFlowerCrops.name"),
+                tooltip: () => I18n.Get("config.harvesterSkipFlowerCrops.tooltip")
+            );
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HarvesterSkipFruitTrees,
+                setValue: v => _config.HarvesterSkipFruitTrees = v,
+                name: () => I18n.Get("config.harvesterSkipFruitTrees.name"),
+                tooltip: () => I18n.Get("config.harvesterSkipFruitTrees.tooltip")
+            );
+
+            // Waterer Options
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.waterer"));
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.AllowRefillAtHatchIfNoWater,
+                setValue: v => _config.AllowRefillAtHatchIfNoWater = v,
+                name: () => I18n.Get("config.allowRefillAtHatch.name"),
+                tooltip: () => I18n.Get("config.allowRefillAtHatch.tooltip")
+            );
+
+            // Pathing
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.pathing"));
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.ScanIntervalTicks,
+                setValue: v => _config.ScanIntervalTicks = v,
+                name: () => I18n.Get("config.scanIntervalTicks.name"),
+                tooltip: () => I18n.Get("config.scanIntervalTicks.tooltip"),
+                min: 1,
+                max: 30,
+                interval: 1
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.NoFlyPadTiles,
+                setValue: v => _config.NoFlyPadTiles = v,
+                name: () => I18n.Get("config.noFlyPadTiles.name"),
+                tooltip: () => I18n.Get("config.noFlyPadTiles.tooltip"),
+                min: 0,
+                max: 5,
+                interval: 1
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.LineOfSightPadPx,
+                setValue: v => _config.LineOfSightPadPx = v,
+                name: () => I18n.Get("config.lineOfSightPadPx.name"),
+                tooltip: () => I18n.Get("config.lineOfSightPadPx.tooltip"),
+                min: 0,
+                max: 50,
+                interval: 2
+            );
+
+            // Capacities
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.capacities"));
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HarvestCapacity,
+                setValue: v => _config.HarvestCapacity = v,
+                name: () => I18n.Get("config.harvestCapacity.name"),
+                tooltip: () => I18n.Get("config.harvestCapacity.tooltip"),
+                min: 1,
+                max: 50,
+                interval: 1
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.WaterMaxCharges,
+                setValue: v => _config.WaterMaxCharges = v,
+                name: () => I18n.Get("config.waterMaxCharges.name"),
+                tooltip: () => I18n.Get("config.waterMaxCharges.tooltip"),
+                min: 1,
+                max: 50,
+                interval: 1
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.PetMaxCharges,
+                setValue: v => _config.PetMaxCharges = v,
+                name: () => I18n.Get("config.petMaxCharges.name"),
+                tooltip: () => I18n.Get("config.petMaxCharges.tooltip"),
+                min: 1,
+                max: 50,
+                interval: 1
+            );
+
+            // Speeds
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.speeds"));
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.HarvestSpeed,
+                setValue: v => _config.HarvestSpeed = v,
+                name: () => I18n.Get("config.harvestSpeed.name"),
+                tooltip: () => I18n.Get("config.harvestSpeed.tooltip"),
+                min: 0.5f,
+                max: 10f,
+                interval: 0.1f
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.WaterSpeed,
+                setValue: v => _config.WaterSpeed = v,
+                name: () => I18n.Get("config.waterSpeed.name"),
+                tooltip: () => I18n.Get("config.waterSpeed.tooltip"),
+                min: 0.5f,
+                max: 10f,
+                interval: 0.1f
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.PetSpeed,
+                setValue: v => _config.PetSpeed = v,
+                name: () => I18n.Get("config.petSpeed.name"),
+                tooltip: () => I18n.Get("config.petSpeed.tooltip"),
+                min: 0.5f,
+                max: 10f,
+                interval: 0.1f
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.FarmerSpeed,
+                setValue: v => _config.FarmerSpeed = v,
+                name: () => I18n.Get("config.farmerSpeed.name"),
+                tooltip: () => I18n.Get("config.farmerSpeed.tooltip"),
+                min: 0.5f,
+                max: 10f,
+                interval: 0.1f
+            );
+
+            // Farmer Timings
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.farmerTimings"));
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.FarmerWorkSeconds,
+                setValue: v => _config.FarmerWorkSeconds = v,
+                name: () => I18n.Get("config.farmerWorkSeconds.name"),
+                tooltip: () => I18n.Get("config.farmerWorkSeconds.tooltip"),
+                min: 1,
+                max: 10,
+                interval: 1
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.FarmerClearSeconds,
+                setValue: v => _config.FarmerClearSeconds = v,
+                name: () => I18n.Get("config.farmerClearSeconds.name"),
+                tooltip: () => I18n.Get("config.farmerClearSeconds.tooltip"),
+                min: 1,
+                max: 10,
+                interval: 1
+            );
+
+            // Audio
+            gmcm.AddSectionTitle(this.ModManifest, () => I18n.Get("config.section.audio"));
+
+            gmcm.AddBoolOption(
+                mod: this.ModManifest,
+                getValue: () => _config.EnableCustomSfx,
+                setValue: v => _config.EnableCustomSfx = v,
+                name: () => I18n.Get("config.enableCustomSfx.name"),
+                tooltip: () => I18n.Get("config.enableCustomSfx.tooltip")
+            );
+
+            gmcm.AddNumberOption(
+                mod: this.ModManifest,
+                getValue: () => _config.CustomSfxVolume,
+                setValue: v => _config.CustomSfxVolume = v,
+                name: () => I18n.Get("config.customSfxVolume.name"),
+                tooltip: () => I18n.Get("config.customSfxVolume.tooltip"),
+                min: 0f,
+                max: 1f,
+                interval: 0.05f
+            );
+        }
+
+        private bool HandleBuildingAction(GameLocation location, string[] args, Farmer player, Point tile)
+        {
+            if (_manager == null) return false;
+            if (location is not Farm farm) return false;
+            
+            Building? warehouse = farm.getBuildingAt(new Vector2(tile.X, tile.Y));
+            if (warehouse == null || warehouse.buildingType?.Value != "DroneWarehouse")
+            {
+                // Fallback: find nearest warehouse
+                warehouse = FindNearestWarehouse(farm, tile);
+            }
+            if (warehouse == null) return false;
+
+            // Determine which half was clicked
+            int rightX = warehouse.tileX.Value + warehouse.tilesWide.Value - 1;
+            bool rightHalf = tile.X == rightX;
+
+            if (rightHalf)
+                OpenWarehouseConsoleMenu(warehouse);
+            else
+                OpenWarehouseChestMenu(warehouse);
+
+            return true;
+        }
+
+        private bool HandleChestAction(GameLocation location, string[] args, Farmer player, Point tile)
+        {
+            if (_manager == null) return false;
+            if (location is not Farm farm) return false;
+            
+            Building? warehouse = farm.getBuildingAt(new Vector2(tile.X, tile.Y));
+            if (warehouse == null || warehouse.buildingType?.Value != "DroneWarehouse")
+                warehouse = FindNearestWarehouse(farm, tile);
+            if (warehouse == null) return false;
+
+            OpenWarehouseChestMenu(warehouse);
+            return true;
+        }
+
+        private bool HandleConsoleAction(GameLocation location, string[] args, Farmer player, Point tile)
+        {
+            if (_manager == null) return false;
+            if (location is not Farm farm) return false;
+            
+            Building? warehouse = farm.getBuildingAt(new Vector2(tile.X, tile.Y));
+            if (warehouse == null || warehouse.buildingType?.Value != "DroneWarehouse")
+                warehouse = FindNearestWarehouse(farm, tile);
+            if (warehouse == null) return false;
+
+            OpenWarehouseConsoleMenu(warehouse);
+            return true;
+        }
+
+        private Building? FindNearestWarehouse(Farm farm, Point tile)
+        {
+            Building? nearest = null;
+            float nearestDist = float.MaxValue;
+
+            foreach (var b in farm.buildings)
+            {
+                if (b?.buildingType?.Value != "DroneWarehouse") continue;
+
+                // Check if tile is within or adjacent to building
+                int bx = b.tileX.Value;
+                int by = b.tileY.Value;
+                int bw = b.tilesWide.Value;
+                int bh = b.tilesHigh.Value;
+
+                // Within building bounds or 1 tile adjacent
+                if (tile.X >= bx - 1 && tile.X <= bx + bw &&
+                    tile.Y >= by - 1 && tile.Y <= by + bh)
+                {
+                    float cx = bx + bw / 2f;
+                    float cy = by + bh / 2f;
+                    float dist = MathF.Sqrt((tile.X - cx) * (tile.X - cx) + (tile.Y - cy) * (tile.Y - cy));
+                    if (dist < nearestDist)
+                    {
+                        nearest = b;
+                        nearestDist = dist;
+                    }
+                }
+            }
+
+            return nearest;
+        }
+
+        private void OpenWarehouseConsoleMenu(Building warehouse)
+        {
+            Game1.activeClickableMenu = new DroneConsoleMenu(
+                this.Helper, this.Monitor, _manager, warehouse,
+                _harvestIcon, _waterIcon, _petIcon, _farmerIcon,
+                _texFrame, _texButton, _texScreen, _ledGreen, _ledRed
+            );
         }
 
         // Открыть сундук склада
@@ -187,6 +567,7 @@ namespace DroneWarehouseMod
             DataCache.Refresh();
             _manager = new DroneManager(_config, this.Monitor, this.Helper,
                 _harvestAnim, _waterAnim, _petAnim, _farmerAnim, _harvestIcon);
+            _selectionOverlay = new ZoneSelectionOverlay(this.Helper, _manager);
             _manager.SyncWithBuildings();
             if (Game1.getFarm() is Farm farm)
             {
@@ -197,7 +578,15 @@ namespace DroneWarehouseMod
 
         private void OnRenderedHud(object? sender, RenderedHudEventArgs e)
         {
+            if (!Context.IsWorldReady) return;
+            
             _farmerOverlay?.Draw(e.SpriteBatch);
+            
+            // Draw selection overlay buttons (for Android/touch users)
+            if (_manager?.IsSelectionActive == true)
+            {
+                _selectionOverlay?.Draw(e.SpriteBatch);
+            }
         }
 
         private void OnDayStarted(object? sender, DayStartedEventArgs e)
@@ -479,9 +868,22 @@ namespace DroneWarehouseMod
             }
         }
 
-        // Хоткеи режима выделения (Q/ЛКМ/ПКМ/Enter/Esc)
+        // Хоткеи режима выделения (Q/ЛКМ/ПКМ/Enter/Esc) + touch button support
         private bool HandleSelectionModeInput(Farm farmSel, ButtonPressedEventArgs e)
         {
+            // Check for overlay button clicks first (for Android/touch users)
+            if (e.Button == SButton.MouseLeft && _selectionOverlay != null)
+            {
+                var screenPos = this.Helper.Input.GetCursorPosition().ScreenPixels;
+                var action = _selectionOverlay.GetClickedAction((int)screenPos.X, (int)screenPos.Y);
+                if (action != null)
+                {
+                    HandleOverlayAction(action.Value, farmSel);
+                    this.Helper.Input.Suppress(e.Button);
+                    return true;
+                }
+            }
+
             switch (e.Button)
             {
                 case SButton.Q:
@@ -506,20 +908,42 @@ namespace DroneWarehouseMod
                     this.Helper.Input.Suppress(e.Button);
                     return true;
                 case SButton.Enter:
+                    HandleOverlayAction(SelectionAction.Start, farmSel);
+                    this.Helper.Input.Suppress(e.Button);
+                    return true;
+            }
+            return false;
+        }
+
+        private void HandleOverlayAction(SelectionAction action, Farm farm)
+        {
+            switch (action)
+            {
+                case SelectionAction.CycleSize:
+                    _manager.CycleSelectionSize();
+                    break;
+                case SelectionAction.Undo:
+                    _manager.RemoveLastVirtualBeacon();
+                    Game1.currentLocation?.localSound("cancel");
+                    break;
+                case SelectionAction.Start:
                     if (_manager.SelectionBuilding is Building sb)
                     {
                         string msg;
-                        bool ok = _manager.TryStartFarmerFromBeacons(sb, farmSel, out msg);
+                        bool ok = _manager.TryStartFarmerFromBeacons(sb, farm, out msg);
                         Game1.playSound(ok ? "smallSelect" : "cancel");
                         if (!string.IsNullOrEmpty(msg))
                             Game1.addHUDMessage(new HUDMessage(msg, ok ? HUDMessage.newQuest_type : HUDMessage.error_type));
                     }
                     _manager.CancelBeaconSelection();
                     _selectionOwner = null;
-                    this.Helper.Input.Suppress(e.Button);
-                    return true;
+                    break;
+                case SelectionAction.Cancel:
+                    _manager.CancelBeaconSelection();
+                    _selectionOwner = null;
+                    Game1.currentLocation?.localSound("cancel");
+                    break;
             }
-            return false;
         }
 
         private void HandleWarehouseInteraction(Farm farm, Vector2 grabTile, ButtonPressedEventArgs e)

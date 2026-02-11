@@ -23,5 +23,13 @@
   "FadeWhenBehind": true,
   "SortTileOffset": 0.0,
   "DrawShadow": false,
-  "BuildCondition": "BUILDINGS_CONSTRUCTED All DroneWarehouse 0 0 true"
+  "BuildCondition": "BUILDINGS_CONSTRUCTED All DroneWarehouse 0 0 true",
+
+  "DefaultAction": "Jenya.DroneWarehouseMod_Interact",
+  "ActionTiles": [
+    { "Id": "LeftChest", "Tile": { "X": 0, "Y": 0 }, "Action": "Jenya.DroneWarehouseMod_ChestTile" },
+    { "Id": "LeftChest2", "Tile": { "X": 0, "Y": 1 }, "Action": "Jenya.DroneWarehouseMod_ChestTile" },
+    { "Id": "RightConsole", "Tile": { "X": 1, "Y": 0 }, "Action": "Jenya.DroneWarehouseMod_ConsoleTile" },
+    { "Id": "RightConsole2", "Tile": { "X": 1, "Y": 1 }, "Action": "Jenya.DroneWarehouseMod_ConsoleTile" }
+  ]
 }
